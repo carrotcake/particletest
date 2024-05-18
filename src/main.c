@@ -46,8 +46,9 @@ typedef struct {
 //static const Rectangle barrier = (Rectangle) {500, 300, 200, 100};
 static Rectangle barriers[NUM_BARRIERS];
 static const Color barrierColor = SKYBLUE;
-
+static char fpsbuf[128], posbuf[128], velbuf[128], flagsbuf[512];
 static bool b_gravity, b_brownian, b_nwtn3rd, b_solitaire;
+static size_t frames = 0;
 
 typedef enum { AXIS_X, AXIS_Y } Axis;
 
@@ -97,7 +98,7 @@ void UpdateBoxPosition(Box *e, const float deltaTime) {
                     horzIsect = max(leftCol.height, rightCol.height);
         if (vertIsect > horzIsect) {
             if (topCol.width > 0) {
-                e->pos.y = top.y - size - 1;
+                e->pos.y = top.y - size;
             } else if (botCol.width > 0) {
                 e->pos.y = bot.y + 1;
             }
@@ -106,7 +107,7 @@ void UpdateBoxPosition(Box *e, const float deltaTime) {
             }
         } else {
             if (leftCol.height > 0) {
-                e->pos.x = left.x - size - 1;
+                e->pos.x = left.x - size;
             } else if (rightCol.height > 0) {
                 e->pos.x = right.x + 1;
             }
@@ -159,12 +160,14 @@ void generateRandomBarriers(void){
                                   GetRandomValue(48, 480)};
         if (barriers[i].x + barriers[i].width > SCREEN_WIDTH
             || barriers[i].y + barriers[i].height > SCREEN_HEIGHT) {
+            //no barriers go off screen
             i--;
             continue;
         }
         for (int j = 0; j < i; ++j) {
             Rectangle collision = GetCollisionRec(barriers[i], barriers[j]);
             if (collision.height > 0 || collision.width > 0) {
+                //no 2 barriers can intersect
                 i--;
                 break;
             }
@@ -175,14 +178,122 @@ void generateRandomBarriers(void){
 void DrawBox(Box *b) {
     DrawRectangleV(b->pos, (Vector2){b->size, b->size}, b->color);
     if (!b_solitaire) {
+        //solitaire-mode trails need to show particle color, so don't draw outlines
         DrawRectangleLinesEx((Rectangle){b->pos.x, b->pos.y, b->size, b->size}, 2.f, BLACK);
     }
+}
+
+void HandleInput(Emitter *e) {
+    switch (GetKeyPressed()) {
+    case KEY_R:
+        generateRandomBarriers();
+        e->count = 0;
+        e->next = 0;
+        break;
+    case KEY_G:
+        b_gravity = !b_gravity;
+        break;
+    case KEY_B:
+        b_brownian = !b_brownian;
+        break;
+    case KEY_N:
+        b_nwtn3rd = !b_nwtn3rd;
+        break;
+    case KEY_L:
+        b_solitaire = !b_solitaire;
+        break;
+    default:
+        break;
+    }
+    if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
+        e->velocity = Vector2Clamp(Vector2Add(e->velocity, (Vector2){0., -0.5}),
+                                   (Vector2){-150, -150},
+                                   (Vector2){150, 150});
+    }
+    if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
+        e->velocity = Vector2Clamp(Vector2Add(e->velocity, (Vector2){0., 0.5}),
+                                   (Vector2){-150, -150},
+                                   (Vector2){150, 150});
+    }
+    if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
+        e->velocity = Vector2Clamp(Vector2Add(e->velocity, (Vector2){-0.5, 0.}),
+                                   (Vector2){-150, -150},
+                                   (Vector2){150, 150});
+    }
+    if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
+        e->velocity = Vector2Clamp(Vector2Add(e->velocity, (Vector2){0.5, 0.}),
+                                   (Vector2){-150, -150},
+                                   (Vector2){150, 150});
+    }
+    {
+        static Vector2 hVel = (Vector2){0.0f, 0.0f};
+        if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
+            e->pos = GetMousePosition();
+            e->velocity = Vector2Zero();
+            hVel = Vector2Add(hVel,
+                              Vector2Scale(Vector2Divide(GetMouseDelta(),
+                                                         (Vector2){SCREEN_WIDTH, SCREEN_HEIGHT}),
+                                           1. / GetFrameTime()));
+        }
+        if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
+            e->velocity = Vector2Scale(hVel, 1);
+            hVel = Vector2Zero();
+        }
+    }
+}
+
+void DoTextStuff(Emitter *e) {
+    static Vector2 histPos[AVG_KEEP] = {0}, histVel[AVG_KEEP] = {0};
+    histPos[frames % AVG_KEEP] = e->pos;
+    histVel[frames % AVG_KEEP] = e->velocity;
+    static Vector2 avgPos = {0}, avgVel = {0};
+    if (frames % AVG_KEEP == 0) {
+        avgPos = Vector2Zero();
+        avgVel = Vector2Zero();
+        for (size_t i = 0; i < AVG_KEEP; i++) {
+            avgPos = Vector2Add(avgPos, Vector2Scale(histPos[i], .1));
+            avgVel = Vector2Add(avgVel, Vector2Scale(histVel[i], .1));
+        }
+    }
+    sprintf(fpsbuf, "FPS: %d", GetFPS());
+    sprintf(posbuf, "Position: (%.4f, %.4f)", avgPos.x, avgPos.y);
+    sprintf(velbuf, "Velocity: (%.4f, %.4f)", avgVel.x, avgVel.y);
+    static const char *BOOLSTRINGS[2] = {"false", "true"};
+    sprintf(flagsbuf,
+            "Gravity [G]: %s | Brownian motion [B]: %s | Newton's 3rd Law [N]: %s | Windows "
+            "Solitaire Mode [L]: %s",
+            BOOLSTRINGS[!!b_gravity],
+            BOOLSTRINGS[!!b_brownian],
+            BOOLSTRINGS[!!b_nwtn3rd],
+            BOOLSTRINGS[!!b_solitaire]);
+}
+
+void Draw(Emitter *e) {
+    const Vector2 text_size = MeasureTextEx(GetFontDefault(), fpsbuf, TEXT_SIZE, 1);
+    BeginDrawing();
+    if (!b_solitaire) {
+        ClearBackground(CLITERAL(Color){0x22, 0x22, 0x22, 0xFF});
+    }
+    for (size_t i = 0; i < e->count; i++) {
+        DrawBox(&e->particles[i]);
+    }
+    for (int i = 0; i < NUM_BARRIERS; ++i) {
+        DrawRectangleRec(barriers[i], barrierColor);
+        DrawRectangleLinesEx(barriers[i], 4.f, BLACK);
+    }
+    DrawBox((Box *) e);
+    DrawText(fpsbuf, TEXT_SIZE, text_size.y + TEXT_OFFSET, TEXT_SIZE, RAYWHITE);
+    DrawText(posbuf, TEXT_SIZE, 2 * (text_size.y + TEXT_OFFSET), TEXT_SIZE, RAYWHITE);
+    DrawText(velbuf, TEXT_SIZE, 3 * (text_size.y + TEXT_OFFSET), TEXT_SIZE, RAYWHITE);
+    DrawText(flagsbuf, TEXT_SIZE / 2, (text_size.y / 2 + TEXT_OFFSET / 2), TEXT_SIZE / 2, RAYWHITE);
+    EndDrawing();
 }
 
 int main(void) {
     SetConfigFlags(FLAG_FULLSCREEN_MODE);
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, WINDOW_TITLE);
     SetTargetFPS(500);
+
     b_gravity = true;
     b_brownian = false;
     b_nwtn3rd = false;
@@ -195,72 +306,16 @@ int main(void) {
                  {0},
                  0,
                  0};
-    size_t frames = 0;
 
     generateRandomBarriers();
 
-
     double t = GetTime();
     SetRandomSeed(*(unsigned long *) &t);
+
     while (!WindowShouldClose()) {
-        switch (GetKeyPressed()) {
-        case KEY_R:
-            generateRandomBarriers();
-            e.count = 0;
-            e.next = 0;
-            break;
-            case KEY_G:
-                b_gravity = !b_gravity;
-                break;
-            case KEY_B:
-                b_brownian = !b_brownian;
-                break;
-            case KEY_N:
-                b_nwtn3rd = !b_nwtn3rd;
-                break;
-            case KEY_L:
-                b_solitaire = !b_solitaire;
-                break;
-            default:
-                break;
-        }
-        if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
-            e.velocity = Vector2Clamp(Vector2Add(e.velocity, (Vector2){0., -0.5}),
-                                      (Vector2){-150, -150},
-                                      (Vector2){150, 150});
-        }
-        if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
-            e.velocity = Vector2Clamp(Vector2Add(e.velocity, (Vector2){0., 0.5}),
-                                      (Vector2){-150, -150},
-                                      (Vector2){150, 150});
-        }
-        if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
-            e.velocity = Vector2Clamp(Vector2Add(e.velocity, (Vector2){-0.5, 0.}),
-                                      (Vector2){-150, -150},
-                                      (Vector2){150, 150});
-        }
-        if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
-            e.velocity = Vector2Clamp(Vector2Add(e.velocity, (Vector2){0.5, 0.}),
-                                      (Vector2){-150, -150},
-                                      (Vector2){150, 150});
-        }
-
         float deltaTime = GetFrameTime() * TIMESCALE;
-
-        {
-            static Vector2 hVel = (Vector2) {0.0f, 0.0f};
-            if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
-                e.pos = GetMousePosition();
-                e.velocity = Vector2Zero();
-                hVel = Vector2Add(hVel,
-                                  Vector2Scale(Vector2Divide(GetMouseDelta(), (Vector2) {SCREEN_WIDTH, SCREEN_HEIGHT}),
-                                               1. / GetFrameTime()));
-            }
-            if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
-                e.velocity = Vector2Scale(hVel, 1);
-                hVel = Vector2Zero();
-            }
-        }
+        //handle keyb/mouse input
+        HandleInput(&e);
         // update emitter position
         UpdateBoxPosition((Box *) &e, deltaTime);
         // update particle positions
@@ -274,57 +329,10 @@ int main(void) {
         if (++frames % PARTICLE_INTERVAL == 0) {
             emitParticle(&e);
         }
-        static Vector2 histPos[AVG_KEEP] = {0}, histVel[AVG_KEEP] = {0};
-        static char fpsbuf[128], posbuf[128], velbuf[128], flagsbuf[512];
-        histPos[frames % AVG_KEEP] = e.pos;
-        histVel[frames % AVG_KEEP] = e.velocity;
-        static Vector2 avgPos = {0}, avgVel = {0};
-        if (frames % AVG_KEEP == 0) {
-            avgPos = Vector2Zero();
-            avgVel = Vector2Zero();
-            for (size_t i = 0; i < AVG_KEEP; i++) {
-                avgPos = Vector2Add(avgPos, Vector2Scale(histPos[i], .1));
-                avgVel = Vector2Add(avgVel, Vector2Scale(histVel[i], .1));
-            }
-        }
-        sprintf(fpsbuf, "FPS: %d", GetFPS());
-        sprintf(posbuf, "Position: (%.4f, %.4f)", avgPos.x, avgPos.y);
-        sprintf(velbuf, "Velocity: (%.4f, %.4f)", avgVel.x, avgVel.y);
-        static const char *BOOLSTRINGS[2] = {"false", "true"};
-        sprintf(flagsbuf,
-                "Gravity [G]: %s | Brownian motion [B]: %s | Newton's 3rd Law [N]: %s | Windows "
-                "Solitaire Mode [L]: %s",
-                BOOLSTRINGS[!!b_gravity],
-                BOOLSTRINGS[!!b_brownian],
-                BOOLSTRINGS[!!b_nwtn3rd],
-                BOOLSTRINGS[!!b_solitaire]);
-        const Vector2 text_size = MeasureTextEx(GetFontDefault(), fpsbuf, TEXT_SIZE, 1);
-        BeginDrawing();
-        if (!b_solitaire) {
-            ClearBackground(CLITERAL(Color){0x22, 0x22, 0x22, 0xFF});
-        }
-        for (size_t i = 0; i < e.count; i++) {
-            // DrawCircleV(e.particles[i].pos, e.particles[i].size,
-            // e.particles[i].color);
-            // DrawRectangleV(e.particles[i].pos, (Vector2) {e.particles[i].size, e.particles[i].size},
-            //                e.particles[i].color);
-            DrawBox(&e.particles[i]);
-        }
-        for (int i = 0; i < NUM_BARRIERS; ++i) {
-            DrawRectangleRec(barriers[i], barrierColor);
-            DrawRectangleLinesEx(barriers[i], 4.f, BLACK);
-        }
-        DrawBox((Box *) &e);
-        //DrawRectangleV(e.pos, (Vector2) {e.size, e.size}, RAYWHITE);
-        DrawText(fpsbuf, TEXT_SIZE, text_size.y + TEXT_OFFSET, TEXT_SIZE, RAYWHITE);
-        DrawText(posbuf, TEXT_SIZE, 2 * (text_size.y + TEXT_OFFSET), TEXT_SIZE, RAYWHITE);
-        DrawText(velbuf, TEXT_SIZE, 3 * (text_size.y + TEXT_OFFSET), TEXT_SIZE, RAYWHITE);
-        DrawText(flagsbuf,
-                 TEXT_SIZE / 2,
-                 (text_size.y / 2 + TEXT_OFFSET / 2),
-                 TEXT_SIZE / 2,
-                 RAYWHITE);
-        EndDrawing();
+
+        DoTextStuff(&e);
+
+        Draw(&e);
     }
 
     CloseWindow();
