@@ -47,37 +47,54 @@ void UpdateBoxPosition(Box *e, float deltaTime) {
     e->velocity = Vector2Add(e->velocity, Vector2Scale((Vector2) {0.f, 5.f}, deltaTime));
     Rectangle cur = (Rectangle) {e->pos.x, e->pos.y, e->size, e->size};
     Rectangle bCollide = GetCollisionRec(cur, barrier);
-    if (bCollide.height > 0 || bCollide.width > 0) {
-        //fix position so these stupid cubes stop getting stuck in the wall
-        //just give it a little nudge
-        Vector2 clampMin = {0, 0}, clampMax = {SCREEN_WIDTH, SCREEN_HEIGHT};
-        if (bCollide.height > 0) {
-            if (e->pos.y > barrier.y && e->pos.y < barrier.y + barrier.height) {
-                clampMin.y = barrier.y + barrier.height;
-                clampMax.y = SCREEN_HEIGHT;
-            } else {
-                clampMin.y = 0;
-                clampMax.y = barrier.y - e->size;
-            }
-        }
-        if (bCollide.width < 0) {
-            if (e->pos.x > barrier.x) {
-                clampMin.x = barrier.x + barrier.width;
-                clampMax.x = SCREEN_WIDTH;
-            } else {
-                clampMin.x = 0;
-                clampMax.x = barrier.x - e->size;
-            }
-        }
-        e->pos = Vector2Clamp(e->pos, clampMin, clampMax);
-    }
-    if (e->pos.x == 0 || e->pos.x == SCREEN_WIDTH - e->size || (bCollide.height > 0 &&e->pos.x > barrier.x - e->size && e->pos.x < (barrier.x + barrier.width))) {
+
+    if (e->pos.x == 0 || e->pos.x == SCREEN_WIDTH - e->size
+        || (bCollide.height == e->size && e->pos.x > barrier.x - e->size
+            && e->pos.x < (barrier.x + barrier.width))) {
         e->velocity.x *= -.8f;
         e->velocity.y *= .95f;
     }
-    if (e->pos.y == 0 || e->pos.y == SCREEN_HEIGHT - e->size || bCollide.height > 0|| (bCollide.width > 0 && e->pos.y > barrier.y - e->size && e->pos.y < (barrier.y + barrier.height))) {
+    if (e->pos.y == 0 || e->pos.y == SCREEN_HEIGHT - e->size
+        || (bCollide.width == e->size && e->pos.y > barrier.y - e->size
+            && e->pos.y < (barrier.y + barrier.height))) {
         e->velocity.y *= -.8f;
         e->velocity.x *= .95f;
+    }
+    if (bCollide.height > 0 || bCollide.width > 0) {
+        //fix position so these stupid cubes stop getting stuck in the wall
+        //just give it a little nudge
+        if (bCollide.width > bCollide.height) {
+            if (e->pos.y > barrier.y - e->size && e->pos.y < barrier.y + barrier.height) {
+                //entity is vertically stuck
+                bool inLowerHalf = e->pos.y > barrier.y + barrier.height / 2;
+                e->pos.y = inLowerHalf ? barrier.y + barrier.height : barrier.y - e->size;
+                cur.y = e->pos.y;
+            }
+            bCollide = GetCollisionRec(cur, barrier);
+            if (bCollide.width > 0 && e->pos.x > barrier.x - e->size
+                && e->pos.x < barrier.x + barrier.width) {
+                //entity is horizontally stuck
+                bool inRightHalf = e->pos.x > barrier.x + barrier.width / 2;
+                e->pos.x = inRightHalf ? barrier.x + barrier.width : barrier.x - e->size;
+                cur.x = e->pos.x;
+            }
+        } else {
+            if (e->pos.x > barrier.x - e->size && e->pos.x < barrier.x + barrier.width) {
+                //entity is horizontally stuck
+                bool inRightHalf = e->pos.x > barrier.x + barrier.width / 2;
+                e->pos.x = inRightHalf ? barrier.x + barrier.width : barrier.x - e->size;
+                cur.x = e->pos.x;
+            }
+
+            bCollide = GetCollisionRec(cur, barrier);
+            if (bCollide.height > 0 && e->pos.y > barrier.y - e->size
+                && e->pos.y < barrier.y + barrier.height) {
+                //entity is vertically stuck
+                bool inLowerHalf = e->pos.y > barrier.y + barrier.height / 2;
+                e->pos.y = inLowerHalf ? barrier.y + barrier.height : barrier.y - e->size;
+                cur.y = e->pos.y;
+            }
+        }
     }
 }
 
