@@ -11,12 +11,14 @@
 
 #define MAX_PARTICLES 1000
 
+#define NUM_BARRIERS 15
+
 #define PARTICLE_INTERVAL 10
 #define PARTICLE_SIZE (5.f * SCALE)
 
 #define EMITTER_SIZE (20.f * SCALE)
 
-#define TEXT_SIZE (15 * SCALE)
+#define TEXT_SIZE (16 * SCALE)
 #define TEXT_OFFSET (8 * SCALE)
 
 #define TIMESCALE 10
@@ -43,7 +45,7 @@ typedef struct {
 } Line;
 
 //static const Rectangle barrier = (Rectangle) {500, 300, 200, 100};
-static Rectangle barriers[10];
+static Rectangle barriers[NUM_BARRIERS];
 static const Color barrierColor = SKYBLUE;
 
 #define min(a, b) ((a) > (b) ? (b) : (a))
@@ -66,7 +68,7 @@ void UpdateBoxPosition(Box *e, float deltaTime) {
         e->velocity.x *= .95f;
     }
 
-    for(int i = 0; i < 10; ++i) {
+    for (int i = 0; i < NUM_BARRIERS; ++i) {
         Rectangle barrier = barriers[i];
         Rectangle top = {barrier.x, barrier.y, barrier.width, 1};
         Rectangle bot = {barrier.x, barrier.y + barrier.height, barrier.width, 1};
@@ -135,12 +137,17 @@ void emitParticle(Emitter *e) {
 }
 
 void generateRandomBarriers(void){
-    for(int i = 0; i<10;++i){
-        barriers[i] = (Rectangle){GetRandomValue(150, SCREEN_WIDTH - 300),
-                                  GetRandomValue(150, SCREEN_HEIGHT - 300),
-                                  GetRandomValue(50, 300),
-                                  GetRandomValue(50, 300)};
+    for (int i = 0; i < NUM_BARRIERS; ++i) {
+        barriers[i] = (Rectangle){GetRandomValue(48, SCREEN_WIDTH - 128),
+                                  GetRandomValue(48, SCREEN_HEIGHT - 128),
+                                  GetRandomValue(48, 480),
+                                  GetRandomValue(48, 480)};
     }
+}
+
+void DrawBox(Box *b) {
+    DrawRectangleV(b->pos, (Vector2){b->size, b->size}, b->color);
+    DrawRectangleLinesEx((Rectangle){b->pos.x, b->pos.y, b->size, b->size}, 2.f, BLACK);
 }
 
 int main(void) {
@@ -219,11 +226,7 @@ int main(void) {
         if (++frames % PARTICLE_INTERVAL == 0) {
             emitParticle(&e);
         }
-
-        BeginDrawing();
-        ClearBackground(CLITERAL(Color) {0x22, 0x22, 0x22, 0xFF});
         static Vector2 histPos[AVG_KEEP] = {0}, histVel[AVG_KEEP] = {0};
-        static unsigned short hframe = 0;
         static char fpsbuf[128], posbuf[128], velbuf[128];
         histPos[frames % AVG_KEEP] = e.pos;
         histVel[frames % AVG_KEEP] = e.velocity;
@@ -240,16 +243,21 @@ int main(void) {
         sprintf(posbuf, "Position: (%.4f, %.4f)", avgPos.x, avgPos.y);
         sprintf(velbuf, "Velocity: (%.4f, %.4f)", avgVel.x, avgVel.y);
         const Vector2 text_size = MeasureTextEx(GetFontDefault(), fpsbuf, TEXT_SIZE, 1);
+        BeginDrawing();
+        ClearBackground(CLITERAL(Color) {0x22, 0x22, 0x22, 0xFF});
         for (size_t i = 0; i < e.count; i++) {
             // DrawCircleV(e.particles[i].pos, e.particles[i].size,
             // e.particles[i].color);
-            DrawRectangleV(e.particles[i].pos, (Vector2) {e.particles[i].size, e.particles[i].size},
-                           e.particles[i].color);
+            // DrawRectangleV(e.particles[i].pos, (Vector2) {e.particles[i].size, e.particles[i].size},
+            //                e.particles[i].color);
+            DrawBox(&e.particles[i]);
         }
-        for(int i = 0; i < 10; ++i){
+        for (int i = 0; i < NUM_BARRIERS; ++i) {
             DrawRectangleRec(barriers[i], barrierColor);
+            DrawRectangleLinesEx(barriers[i], 4.f, BLACK);
         }
-        DrawRectangleV(e.pos, (Vector2) {e.size, e.size}, RAYWHITE);
+        DrawBox((Box *) &e);
+        //DrawRectangleV(e.pos, (Vector2) {e.size, e.size}, RAYWHITE);
         DrawText(fpsbuf, TEXT_SIZE, text_size.y + TEXT_OFFSET, TEXT_SIZE, RAYWHITE);
         DrawText(posbuf, TEXT_SIZE, 2 * (text_size.y + TEXT_OFFSET), TEXT_SIZE, RAYWHITE);
         DrawText(velbuf, TEXT_SIZE, 3 * (text_size.y + TEXT_OFFSET), TEXT_SIZE, RAYWHITE);
