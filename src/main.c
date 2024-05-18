@@ -24,6 +24,9 @@
 #define TIMESCALE 10
 #define AVG_KEEP 10
 
+#define min(a, b) ((a) > (b) ? (b) : (a))
+#define max(a, b) ((a) > (b) ? (a) : (b))
+
 typedef struct {
     Vector2 pos;
     Vector2 velocity;
@@ -40,26 +43,33 @@ typedef struct {
     size_t count, next;
 } Emitter;
 
-typedef struct {
-    Vector2 a, b;
-} Line;
-
 //static const Rectangle barrier = (Rectangle) {500, 300, 200, 100};
 static Rectangle barriers[NUM_BARRIERS];
 static const Color barrierColor = SKYBLUE;
 
-#define min(a, b) ((a) > (b) ? (b) : (a))
-#define max(a, b) ((a) > (b) ? (a) : (b))
+static bool b_gravity, b_brownian, b_nwtn3rd, b_solitaire;
 
-static bool b_gravity, b_brownian;
+typedef enum { AXIS_X, AXIS_Y } Axis;
 
-void UpdateBoxPosition(Box *e, float deltaTime) {
+inline void CalcVelocityAfterCollision(Box *e, const Axis a) {
+    switch (a) {
+    case AXIS_X:
+        e->velocity.x *= -.8f;
+        e->velocity.y *= .95f;
+        break;
+    case AXIS_Y:
+        e->velocity.y *= -.8f;
+        e->velocity.x *= .95f;
+        break;
+    }
+}
+
+void UpdateBoxPosition(Box *e, const float deltaTime) {
     float size = max(e->size, 0);
     e->pos = Vector2Clamp(Vector2Add(e->pos, Vector2Scale(e->velocity, deltaTime)),
                           (Vector2){0.f, 0.f},
                           (Vector2){SCREEN_WIDTH - size, SCREEN_HEIGHT - size});
     if(b_brownian) {
-
         e->velocity = Vector2Add(e->velocity, Vector2Scale(
                 (Vector2) {(float) GetRandomValue(-10, 10) / 10.f, (float) GetRandomValue(-10, 10) / 10.f}, 1));
     }
@@ -67,30 +77,24 @@ void UpdateBoxPosition(Box *e, float deltaTime) {
         e->velocity = Vector2Add(e->velocity, Vector2Scale((Vector2) {0, 5.f}, deltaTime));
     }
 
-    Rectangle cur = (Rectangle){e->pos.x, e->pos.y, size, size};
+    const Rectangle cur = (Rectangle){e->pos.x, e->pos.y, size, size};
     if (e->pos.x == 0 || e->pos.x == SCREEN_WIDTH - size) {
-        e->velocity.x *= -.8f;
-        e->velocity.y *= .95f;
+        CalcVelocityAfterCollision(e, AXIS_X);
     }
     if (e->pos.y == 0 || e->pos.y == SCREEN_HEIGHT - size) {
-        e->velocity.y *= -.8f;
-        e->velocity.x *= .95f;
+        CalcVelocityAfterCollision(e, AXIS_Y);
     }
 
     for (int i = 0; i < NUM_BARRIERS; ++i) {
-        Rectangle barrier = barriers[i];
-        Rectangle top = {barrier.x, barrier.y, barrier.width, 1};
-        Rectangle bot = {barrier.x, barrier.y + barrier.height, barrier.width, 1};
-        Rectangle left = {barrier.x, barrier.y, 1, barrier.height};
-        Rectangle right = {barrier.x + barrier.width, barrier.y, 1, barrier.height};
-
-        Rectangle topCol = GetCollisionRec(cur, top);
-        Rectangle botCol = GetCollisionRec(cur, bot);
-        Rectangle leftCol = GetCollisionRec(cur, left);
-        Rectangle rightCol = GetCollisionRec(cur, right);
-
-        float vertIsect = max(topCol.width, botCol.width),
-              horzIsect = max(leftCol.height, rightCol.height);
+        const Rectangle barrier = barriers[i], top = {barrier.x, barrier.y, barrier.width, 1},
+                        bot = {barrier.x, barrier.y + barrier.height, barrier.width, 1},
+                        left = {barrier.x, barrier.y, 1, barrier.height},
+                        right = {barrier.x + barrier.width, barrier.y, 1, barrier.height},
+                        topCol = GetCollisionRec(cur, top), botCol = GetCollisionRec(cur, bot),
+                        leftCol = GetCollisionRec(cur, left),
+                        rightCol = GetCollisionRec(cur, right);
+        const float vertIsect = max(topCol.width, botCol.width),
+                    horzIsect = max(leftCol.height, rightCol.height);
         if (vertIsect > horzIsect) {
             if (topCol.width > 0) {
                 e->pos.y = top.y - size - 1;
@@ -98,8 +102,7 @@ void UpdateBoxPosition(Box *e, float deltaTime) {
                 e->pos.y = bot.y + 1;
             }
             if (topCol.width > 0 || botCol.width > 0) {
-                e->velocity.y *= -.8f;
-                e->velocity.x *= .95f;
+                CalcVelocityAfterCollision(e, AXIS_Y);
             }
         } else {
             if (leftCol.height > 0) {
@@ -108,8 +111,7 @@ void UpdateBoxPosition(Box *e, float deltaTime) {
                 e->pos.x = right.x + 1;
             }
             if (leftCol.height > 0 || rightCol.height > 0) {
-                e->velocity.x *= -.8f;
-                e->velocity.y *= .95f;
+                CalcVelocityAfterCollision(e, AXIS_X);
             }
         }
     }
@@ -132,8 +134,12 @@ void UpdateParticle(Box *p) {
 void emitParticle(Emitter *e) {
     Box *p = &e->particles[e->next];
     p->pos = (Vector2) {e->pos.x + e->size / 2, e->pos.y + e->size / 2};
-    Vector2 fuzz = (Vector2) {(float) GetRandomValue(-64, 64) / 8., (float) GetRandomValue(-128, 64) / 8.};
+    Vector2 fuzz = (Vector2){(float) GetRandomValue(-64, 64) / 8.,
+                             (float) GetRandomValue(-128, 128) / 8.};
     p->velocity = fuzz;
+    if (b_nwtn3rd) {
+        e->velocity = Vector2Subtract(e->velocity, Vector2Scale(fuzz, PARTICLE_SIZE / EMITTER_SIZE));
+    }
     p->size = PARTICLE_SIZE;
     p->color = RED;
     if (e->next + 1 < MAX_PARTICLES && e->next >= e->count) {
@@ -151,12 +157,26 @@ void generateRandomBarriers(void){
                                   GetRandomValue(48, SCREEN_HEIGHT - 128),
                                   GetRandomValue(48, 480),
                                   GetRandomValue(48, 480)};
+        if (barriers[i].x + barriers[i].width > SCREEN_WIDTH
+            || barriers[i].y + barriers[i].height > SCREEN_HEIGHT) {
+            i--;
+            continue;
+        }
+        for (int j = 0; j < i; ++j) {
+            Rectangle collision = GetCollisionRec(barriers[i], barriers[j]);
+            if (collision.height > 0 || collision.width > 0) {
+                i--;
+                break;
+            }
+        }
     }
 }
 
 void DrawBox(Box *b) {
     DrawRectangleV(b->pos, (Vector2){b->size, b->size}, b->color);
-    DrawRectangleLinesEx((Rectangle){b->pos.x, b->pos.y, b->size, b->size}, 2.f, BLACK);
+    if (!b_solitaire) {
+        DrawRectangleLinesEx((Rectangle){b->pos.x, b->pos.y, b->size, b->size}, 2.f, BLACK);
+    }
 }
 
 int main(void) {
@@ -165,9 +185,16 @@ int main(void) {
     SetTargetFPS(500);
     b_gravity = true;
     b_brownian = false;
+    b_nwtn3rd = false;
+    b_solitaire = false;
 
-    Emitter e = {(Vector2) {SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f}, (Vector2) {-80.f, -80.f},
-                 (Color) {0xFF, 0xFF, 0xFF, 0xFF}, EMITTER_SIZE, {0}, 0, 0};
+    Emitter e = {(Vector2){SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f},
+                 (Vector2){-80.f, -80.f},
+                 (Color){0xFF, 0xFF, 0xFF, 0xFF},
+                 EMITTER_SIZE,
+                 {0},
+                 0,
+                 0};
     size_t frames = 0;
 
     generateRandomBarriers();
@@ -179,6 +206,8 @@ int main(void) {
         switch (GetKeyPressed()) {
         case KEY_R:
             generateRandomBarriers();
+            e.count = 0;
+            e.next = 0;
             break;
             case KEY_G:
                 b_gravity = !b_gravity;
@@ -186,8 +215,14 @@ int main(void) {
             case KEY_B:
                 b_brownian = !b_brownian;
                 break;
-        default:
-            break;
+            case KEY_N:
+                b_nwtn3rd = !b_nwtn3rd;
+                break;
+            case KEY_L:
+                b_solitaire = !b_solitaire;
+                break;
+            default:
+                break;
         }
         if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
             e.velocity = Vector2Clamp(Vector2Add(e.velocity, (Vector2){0., -0.5}),
@@ -213,7 +248,6 @@ int main(void) {
         float deltaTime = GetFrameTime() * TIMESCALE;
 
         {
-            static size_t hframes;
             static Vector2 hVel = (Vector2) {0.0f, 0.0f};
             if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
                 e.pos = GetMousePosition();
@@ -221,12 +255,10 @@ int main(void) {
                 hVel = Vector2Add(hVel,
                                   Vector2Scale(Vector2Divide(GetMouseDelta(), (Vector2) {SCREEN_WIDTH, SCREEN_HEIGHT}),
                                                1. / GetFrameTime()));
-                hframes++;
             }
             if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
                 e.velocity = Vector2Scale(hVel, 1);
                 hVel = Vector2Zero();
-                hframes = 0;
             }
         }
         // update emitter position
@@ -243,7 +275,7 @@ int main(void) {
             emitParticle(&e);
         }
         static Vector2 histPos[AVG_KEEP] = {0}, histVel[AVG_KEEP] = {0};
-        static char fpsbuf[128], posbuf[128], velbuf[128];
+        static char fpsbuf[128], posbuf[128], velbuf[128], flagsbuf[512];
         histPos[frames % AVG_KEEP] = e.pos;
         histVel[frames % AVG_KEEP] = e.velocity;
         static Vector2 avgPos = {0}, avgVel = {0};
@@ -258,9 +290,19 @@ int main(void) {
         sprintf(fpsbuf, "FPS: %d", GetFPS());
         sprintf(posbuf, "Position: (%.4f, %.4f)", avgPos.x, avgPos.y);
         sprintf(velbuf, "Velocity: (%.4f, %.4f)", avgVel.x, avgVel.y);
+        static const char *BOOLSTRINGS[2] = {"false", "true"};
+        sprintf(flagsbuf,
+                "Gravity [G]: %s | Brownian motion [B]: %s | Newton's 3rd Law [N]: %s | Windows "
+                "Solitaire Mode [L]: %s",
+                BOOLSTRINGS[!!b_gravity],
+                BOOLSTRINGS[!!b_brownian],
+                BOOLSTRINGS[!!b_nwtn3rd],
+                BOOLSTRINGS[!!b_solitaire]);
         const Vector2 text_size = MeasureTextEx(GetFontDefault(), fpsbuf, TEXT_SIZE, 1);
         BeginDrawing();
-        ClearBackground(CLITERAL(Color) {0x22, 0x22, 0x22, 0xFF});
+        if (!b_solitaire) {
+            ClearBackground(CLITERAL(Color){0x22, 0x22, 0x22, 0xFF});
+        }
         for (size_t i = 0; i < e.count; i++) {
             // DrawCircleV(e.particles[i].pos, e.particles[i].size,
             // e.particles[i].color);
@@ -277,6 +319,11 @@ int main(void) {
         DrawText(fpsbuf, TEXT_SIZE, text_size.y + TEXT_OFFSET, TEXT_SIZE, RAYWHITE);
         DrawText(posbuf, TEXT_SIZE, 2 * (text_size.y + TEXT_OFFSET), TEXT_SIZE, RAYWHITE);
         DrawText(velbuf, TEXT_SIZE, 3 * (text_size.y + TEXT_OFFSET), TEXT_SIZE, RAYWHITE);
+        DrawText(flagsbuf,
+                 TEXT_SIZE / 2,
+                 (text_size.y / 2 + TEXT_OFFSET / 2),
+                 TEXT_SIZE / 2,
+                 RAYWHITE);
         EndDrawing();
     }
 
