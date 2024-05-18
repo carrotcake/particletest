@@ -2,8 +2,8 @@
 #include "raymath.h"
 #include <stdio.h>
 
-#define SCREEN_WIDTH (1600)
-#define SCREEN_HEIGHT (900)
+#define SCREEN_WIDTH (2000)
+#define SCREEN_HEIGHT (1350)
 
 #define SCALE (SCREEN_WIDTH / 800)
 
@@ -38,7 +38,8 @@ typedef struct {
     size_t count, next;
 } Emitter;
 
-static const Rectangle barrier = (Rectangle) {500, 300, 200, 100};
+//static const Rectangle barrier = (Rectangle) {500, 300, 200, 100};
+static Rectangle barriers[10];
 static const Color barrierColor = SKYBLUE;
 
 void UpdateBoxPosition(Box *e, float deltaTime) {
@@ -46,53 +47,65 @@ void UpdateBoxPosition(Box *e, float deltaTime) {
                           (Vector2) {SCREEN_WIDTH - e->size, SCREEN_HEIGHT - e->size});
     e->velocity = Vector2Add(e->velocity, Vector2Scale((Vector2) {0.f, 5.f}, deltaTime));
     Rectangle cur = (Rectangle) {e->pos.x, e->pos.y, e->size, e->size};
-    Rectangle bCollide = GetCollisionRec(cur, barrier);
-
     if (e->pos.x == 0 || e->pos.x == SCREEN_WIDTH - e->size
-        || (bCollide.height == e->size && e->pos.x > barrier.x - e->size
-            && e->pos.x < (barrier.x + barrier.width))) {
+        ) {
         e->velocity.x *= -.8f;
-        e->velocity.y *= .95f;
+       // e->velocity.y *= .95f;
     }
     if (e->pos.y == 0 || e->pos.y == SCREEN_HEIGHT - e->size
-        || (bCollide.width == e->size && e->pos.y > barrier.y - e->size
-            && e->pos.y < (barrier.y + barrier.height))) {
+        ) {
         e->velocity.y *= -.8f;
-        e->velocity.x *= .95f;
+        //e->velocity.x *= .95f;
     }
-    if (bCollide.height > 0 || bCollide.width > 0) {
-        //fix position so these stupid cubes stop getting stuck in the wall
-        //just give it a little nudge
-        if (bCollide.width > bCollide.height) {
-            if (e->pos.y > barrier.y - e->size && e->pos.y < barrier.y + barrier.height) {
-                //entity is vertically stuck
-                bool inLowerHalf = e->pos.y > barrier.y + barrier.height / 2;
-                e->pos.y = inLowerHalf ? barrier.y + barrier.height : barrier.y - e->size;
-                cur.y = e->pos.y;
-            }
-            bCollide = GetCollisionRec(cur, barrier);
-            if (bCollide.width > 0 && e->pos.x > barrier.x - e->size
-                && e->pos.x < barrier.x + barrier.width) {
-                //entity is horizontally stuck
-                bool inRightHalf = e->pos.x > barrier.x + barrier.width / 2;
-                e->pos.x = inRightHalf ? barrier.x + barrier.width : barrier.x - e->size;
-                cur.x = e->pos.x;
-            }
-        } else {
-            if (e->pos.x > barrier.x - e->size && e->pos.x < barrier.x + barrier.width) {
-                //entity is horizontally stuck
-                bool inRightHalf = e->pos.x > barrier.x + barrier.width / 2;
-                e->pos.x = inRightHalf ? barrier.x + barrier.width : barrier.x - e->size;
-                cur.x = e->pos.x;
-            }
 
-            bCollide = GetCollisionRec(cur, barrier);
-            if (bCollide.height > 0 && e->pos.y > barrier.y - e->size
-                && e->pos.y < barrier.y + barrier.height) {
-                //entity is vertically stuck
-                bool inLowerHalf = e->pos.y > barrier.y + barrier.height / 2;
-                e->pos.y = inLowerHalf ? barrier.y + barrier.height : barrier.y - e->size;
-                cur.y = e->pos.y;
+    for(int i = 0; i < 10; ++i) {
+        Rectangle barrier = barriers[i];
+        Rectangle bCollide = GetCollisionRec(cur, barrier);
+
+        if ((bCollide.height == e->size && e->pos.x > barrier.x - e->size
+                && e->pos.x < (barrier.x + barrier.width))) {
+            e->velocity.x *= -.8f;
+           // e->velocity.y *= .95f;
+        }
+        if ((bCollide.width == e->size && e->pos.y > barrier.y - e->size
+                && e->pos.y < (barrier.y + barrier.height))) {
+            e->velocity.y *= -.8f;
+           // e->velocity.x *= .95f;
+        }
+        if (bCollide.height > 0 || bCollide.width > 0) {
+            //fix position so these stupid cubes stop getting stuck in the wall
+            //just give it a little nudge
+            if (bCollide.width > bCollide.height) {
+                if (e->pos.y > barrier.y - e->size && e->pos.y < barrier.y + barrier.height) {
+                    //entity is vertically stuck
+                    bool inLowerHalf = e->pos.y > barrier.y + barrier.height / 2;
+                    e->pos.y = inLowerHalf ? barrier.y + barrier.height : barrier.y - e->size;
+                    cur.y = e->pos.y;
+                }
+                bCollide = GetCollisionRec(cur, barrier);
+                if (bCollide.width > 0 && e->pos.x > barrier.x - e->size
+                    && e->pos.x < barrier.x + barrier.width) {
+                    //entity is horizontally stuck
+                    bool inRightHalf = e->pos.x > barrier.x + barrier.width / 2;
+                    e->pos.x = inRightHalf ? barrier.x + barrier.width : barrier.x - e->size;
+                    cur.x = e->pos.x;
+                }
+            } else {
+                if (e->pos.x > barrier.x - e->size && e->pos.x < barrier.x + barrier.width) {
+                    //entity is horizontally stuck
+                    bool inRightHalf = e->pos.x > barrier.x + barrier.width / 2;
+                    e->pos.x = inRightHalf ? barrier.x + barrier.width : barrier.x - e->size;
+                    cur.x = e->pos.x;
+                }
+
+                bCollide = GetCollisionRec(cur, barrier);
+                if (bCollide.height > 0 && e->pos.y > barrier.y - e->size
+                    && e->pos.y < barrier.y + barrier.height) {
+                    //entity is vertically stuck
+                    bool inLowerHalf = e->pos.y > barrier.y + barrier.height / 2;
+                    e->pos.y = inLowerHalf ? barrier.y + barrier.height : barrier.y - e->size;
+                    cur.y = e->pos.y;
+                }
             }
         }
     }
@@ -105,9 +118,9 @@ void UpdateParticle(Box *p) {
     if (hsv.x >= 360.f) {
         hsv.x = 10;
     }
-    hsv.x += 300. / increment;
-    hsv.y -= .1 / increment;
-    hsv.z -= .1 / increment;
+    hsv.x += 720. / increment;
+   // hsv.y -= .1 / increment;
+    //hsv.z -= .1 / increment;
     p->size -= PARTICLE_SIZE / increment;
     p->color = ColorFromHSV(hsv.x, hsv.y, hsv.z);
 }
@@ -128,7 +141,15 @@ void emitParticle(Emitter *e) {
     }
 }
 
+void generateRandomBarriers(void){
+    for(int i = 0; i<10;++i){
+        barriers[i] = (Rectangle){GetRandomValue(150, SCREEN_WIDTH-300),GetRandomValue(150, SCREEN_HEIGHT-300),
+                                  GetRandomValue(50,300),GetRandomValue(50,300)};
+    }
+}
+
 int main(void) {
+    SetConfigFlags(FLAG_FULLSCREEN_MODE);
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, WINDOW_TITLE);
     SetTargetFPS(1000);
 
@@ -136,9 +157,19 @@ int main(void) {
     Emitter e = {(Vector2) {SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f}, (Vector2) {-80.f, -80.f},
                  (Color) {0xFF, 0xFF, 0xFF, 0xFF}, EMITTER_SIZE, {0}, 0, 0};
     size_t frames = 0;
+
+    generateRandomBarriers();
+
+
     double t = GetTime();
     SetRandomSeed(*(unsigned long *) &t);
     while (!WindowShouldClose()) {
+
+        if(GetKeyPressed() == KEY_R){
+            generateRandomBarriers();
+        }
+
+
         float deltaTime = GetFrameTime() * TIMESCALE;
 
         {
@@ -197,9 +228,10 @@ int main(void) {
             DrawRectangleV(e.particles[i].pos, (Vector2) {e.particles[i].size, e.particles[i].size},
                            e.particles[i].color);
         }
-        Color testColor = (Color) {e.velocity.y > 0 ? 0xFF : 0x00, e.velocity.x > 0 ? 0xFF : 0x00, 0xFF, 0xFF};
-        DrawRectangleRec(barrier, barrierColor);
-        DrawRectangleV(e.pos, (Vector2) {e.size, e.size}, testColor);
+        for(int i = 0; i < 10; ++i){
+            DrawRectangleRec(barriers[i], barrierColor);
+        }
+        DrawRectangleV(e.pos, (Vector2) {e.size, e.size}, RAYWHITE);
         DrawText(fpsbuf, TEXT_SIZE, text_size.y + TEXT_OFFSET, TEXT_SIZE, RAYWHITE);
         DrawText(posbuf, TEXT_SIZE, 2 * (text_size.y + TEXT_OFFSET), TEXT_SIZE, RAYWHITE);
         DrawText(velbuf, TEXT_SIZE, 3 * (text_size.y + TEXT_OFFSET), TEXT_SIZE, RAYWHITE);
