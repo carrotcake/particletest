@@ -51,12 +51,21 @@ static const Color barrierColor = SKYBLUE;
 #define min(a, b) ((a) > (b) ? (b) : (a))
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
+static bool b_gravity, b_brownian;
+
 void UpdateBoxPosition(Box *e, float deltaTime) {
     float size = max(e->size, 0);
     e->pos = Vector2Clamp(Vector2Add(e->pos, Vector2Scale(e->velocity, deltaTime)),
                           (Vector2){0.f, 0.f},
                           (Vector2){SCREEN_WIDTH - size, SCREEN_HEIGHT - size});
-    e->velocity = Vector2Add(e->velocity, Vector2Scale((Vector2) {0.f, 5.f}, deltaTime));
+    if(b_brownian) {
+
+        e->velocity = Vector2Add(e->velocity, Vector2Scale(
+                (Vector2) {(float) GetRandomValue(-10, 10) / 10.f, (float) GetRandomValue(-10, 10) / 10.f}, 1));
+    }
+    if(b_gravity) {
+        e->velocity = Vector2Add(e->velocity, Vector2Scale((Vector2) {0, 5.f}, deltaTime));
+    }
 
     Rectangle cur = (Rectangle){e->pos.x, e->pos.y, size, size};
     if (e->pos.x == 0 || e->pos.x == SCREEN_WIDTH - size) {
@@ -153,8 +162,9 @@ void DrawBox(Box *b) {
 int main(void) {
     SetConfigFlags(FLAG_FULLSCREEN_MODE);
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, WINDOW_TITLE);
-    SetTargetFPS(1000);
-
+    SetTargetFPS(500);
+    b_gravity = true;
+    b_brownian = false;
 
     Emitter e = {(Vector2) {SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f}, (Vector2) {-80.f, -80.f},
                  (Color) {0xFF, 0xFF, 0xFF, 0xFF}, EMITTER_SIZE, {0}, 0, 0};
@@ -170,6 +180,12 @@ int main(void) {
         case KEY_R:
             generateRandomBarriers();
             break;
+            case KEY_G:
+                b_gravity = !b_gravity;
+                break;
+            case KEY_B:
+                b_brownian = !b_brownian;
+                break;
         default:
             break;
         }
