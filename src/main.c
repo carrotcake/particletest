@@ -20,6 +20,7 @@
 #define TEXT_OFFSET (8 * SCALE)
 
 #define TIMESCALE 10
+#define AVG_KEEP 10
 
 typedef struct {
     Vector2 pos;
@@ -37,18 +38,46 @@ typedef struct {
     size_t count, next;
 } Emitter;
 
+static const Rectangle barrier = (Rectangle) {500, 300, 200, 100};
+static const Color barrierColor = SKYBLUE;
+
 void UpdateBoxPosition(Box *e, float deltaTime) {
-    e->pos = Vector2Clamp(Vector2Add(e->pos, Vector2Scale(e->velocity, deltaTime)),
-                          (Vector2){0.f, 0.f},
-                          (Vector2){SCREEN_WIDTH - e->size, SCREEN_HEIGHT - e->size});
-    e->velocity = Vector2Add(e->velocity, Vector2Scale((Vector2){0.f, 5.f}, deltaTime));
-    if (e->pos.x == 0 || e->pos.x == SCREEN_WIDTH - e->size) {
-        e->velocity.x *= -.69f;
-        e->velocity.y *= .9f;
+    e->pos = Vector2Clamp(Vector2Add(e->pos, Vector2Scale(e->velocity, deltaTime)), (Vector2) {0.f, 0.f},
+                          (Vector2) {SCREEN_WIDTH - e->size, SCREEN_HEIGHT - e->size});
+    e->velocity = Vector2Add(e->velocity, Vector2Scale((Vector2) {0.f, 5.f}, deltaTime));
+    Rectangle cur = (Rectangle) {e->pos.x, e->pos.y, e->size, e->size};
+    Rectangle bCollide = GetCollisionRec(cur, barrier);
+    if (bCollide.height > 0 || bCollide.width > 0) {
+        //fix position so these stupid cubes stop getting stuck in the wall
+        //just give it a little nudge
+        Vector2 clampMin = {0, 0}, clampMax = {SCREEN_WIDTH, SCREEN_HEIGHT};
+        if (bCollide.height > 0) {
+            if (e->pos.y > barrier.y && e->pos.y < barrier.y + barrier.height) {
+                clampMin.y = barrier.y + barrier.height;
+                clampMax.y = SCREEN_HEIGHT;
+            } else {
+                clampMin.y = 0;
+                clampMax.y = barrier.y - e->size;
+            }
+        }
+        if (bCollide.width < 0) {
+            if (e->pos.x > barrier.x) {
+                clampMin.x = barrier.x + barrier.width;
+                clampMax.x = SCREEN_WIDTH;
+            } else {
+                clampMin.x = 0;
+                clampMax.x = barrier.x - e->size;
+            }
+        }
+        e->pos = Vector2Clamp(e->pos, clampMin, clampMax);
     }
-    if (e->pos.y == 0 || e->pos.y == SCREEN_HEIGHT - e->size) {
-        e->velocity.y *= -.69f;
-        e->velocity.x *= .9f;
+    if (e->pos.x == 0 || e->pos.x == SCREEN_WIDTH - e->size || (bCollide.height > 0 &&e->pos.x > barrier.x - e->size && e->pos.x < (barrier.x + barrier.width))) {
+        e->velocity.x *= -.8f;
+        e->velocity.y *= .95f;
+    }
+    if (e->pos.y == 0 || e->pos.y == SCREEN_HEIGHT - e->size || bCollide.height > 0|| (bCollide.width > 0 && e->pos.y > barrier.y - e->size && e->pos.y < (barrier.y + barrier.height))) {
+        e->velocity.y *= -.8f;
+        e->velocity.x *= .95f;
     }
 }
 
@@ -68,9 +97,8 @@ void UpdateParticle(Box *p) {
 
 void emitParticle(Emitter *e) {
     Box *p = &e->particles[e->next];
-    p->pos = (Vector2){e->pos.x + e->size / 2, e->pos.y + e->size / 2};
-    Vector2 fuzz = (Vector2){(float) GetRandomValue(-64, 64) / 8.,
-                             (float) GetRandomValue(-128, 64) / 8.};
+    p->pos = (Vector2) {e->pos.x + e->size / 2, e->pos.y + e->size / 2};
+    Vector2 fuzz = (Vector2) {(float) GetRandomValue(-64, 64) / 8., (float) GetRandomValue(-128, 64) / 8.};
     p->velocity = fuzz;
     p->size = PARTICLE_SIZE;
     p->color = RED;
@@ -87,13 +115,9 @@ int main(void) {
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, WINDOW_TITLE);
     SetTargetFPS(1000);
 
-    Emitter e = {(Vector2){SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f},
-                 (Vector2){-80.f, -80.f},
-                 (Color){0xFF, 0xFF, 0xFF, 0xFF},
-                 EMITTER_SIZE,
-                 {0},
-                 0,
-                 0};
+
+    Emitter e = {(Vector2) {SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f}, (Vector2) {-80.f, -80.f},
+                 (Color) {0xFF, 0xFF, 0xFF, 0xFF}, EMITTER_SIZE, {0}, 0, 0};
     size_t frames = 0;
     double t = GetTime();
     SetRandomSeed(*(unsigned long *) &t);
@@ -102,12 +126,11 @@ int main(void) {
 
         {
             static size_t hframes;
-            static Vector2 hVel = (Vector2){0.0f, 0.0f};
+            static Vector2 hVel = (Vector2) {0.0f, 0.0f};
             if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
                 e.pos = GetMousePosition();
                 hVel = Vector2Add(hVel,
-                                  Vector2Scale(Vector2Divide(GetMouseDelta(),
-                                                             (Vector2){SCREEN_WIDTH, SCREEN_HEIGHT}),
+                                  Vector2Scale(Vector2Divide(GetMouseDelta(), (Vector2) {SCREEN_WIDTH, SCREEN_HEIGHT}),
                                                1. / GetFrameTime()));
                 hframes++;
             }
@@ -132,8 +155,7 @@ int main(void) {
         }
 
         BeginDrawing();
-        ClearBackground(CLITERAL(Color){0x22, 0x22, 0x22, 0xFF});
-#define AVG_KEEP 10
+        ClearBackground(CLITERAL(Color) {0x22, 0x22, 0x22, 0xFF});
         static Vector2 histPos[AVG_KEEP] = {0}, histVel[AVG_KEEP] = {0};
         static unsigned short hframe = 0;
         static char fpsbuf[128], posbuf[128], velbuf[128];
@@ -155,11 +177,12 @@ int main(void) {
         for (size_t i = 0; i < e.count; i++) {
             // DrawCircleV(e.particles[i].pos, e.particles[i].size,
             // e.particles[i].color);
-            DrawRectangleV(e.particles[i].pos,
-                           (Vector2){e.particles[i].size, e.particles[i].size},
+            DrawRectangleV(e.particles[i].pos, (Vector2) {e.particles[i].size, e.particles[i].size},
                            e.particles[i].color);
         }
-        DrawRectangleV(e.pos, (Vector2){e.size, e.size}, e.color);
+        Color testColor = (Color) {e.velocity.y > 0 ? 0xFF : 0x00, e.velocity.x > 0 ? 0xFF : 0x00, 0xFF, 0xFF};
+        DrawRectangleRec(barrier, barrierColor);
+        DrawRectangleV(e.pos, (Vector2) {e.size, e.size}, testColor);
         DrawText(fpsbuf, TEXT_SIZE, text_size.y + TEXT_OFFSET, TEXT_SIZE, RAYWHITE);
         DrawText(posbuf, TEXT_SIZE, 2 * (text_size.y + TEXT_OFFSET), TEXT_SIZE, RAYWHITE);
         DrawText(velbuf, TEXT_SIZE, 3 * (text_size.y + TEXT_OFFSET), TEXT_SIZE, RAYWHITE);
