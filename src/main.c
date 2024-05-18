@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 #define SCREEN_WIDTH (2560)
-#define SCREEN_HEIGHT (1440)
+#define SCREEN_HEIGHT (SCREEN_WIDTH * 9 / 16)
 
 #define SCALE (SCREEN_WIDTH / 800)
 
@@ -159,11 +159,33 @@ int main(void) {
     double t = GetTime();
     SetRandomSeed(*(unsigned long *) &t);
     while (!WindowShouldClose()) {
-
-        if(GetKeyPressed() == KEY_R){
+        switch (GetKeyPressed()) {
+        case KEY_R:
             generateRandomBarriers();
+            break;
+        default:
+            break;
         }
-
+        if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
+            e.velocity = Vector2Clamp(Vector2Add(e.velocity, (Vector2){0., -0.5}),
+                                      (Vector2){-150, -150},
+                                      (Vector2){150, 150});
+        }
+        if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
+            e.velocity = Vector2Clamp(Vector2Add(e.velocity, (Vector2){0., 0.5}),
+                                      (Vector2){-150, -150},
+                                      (Vector2){150, 150});
+        }
+        if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
+            e.velocity = Vector2Clamp(Vector2Add(e.velocity, (Vector2){-0.5, 0.}),
+                                      (Vector2){-150, -150},
+                                      (Vector2){150, 150});
+        }
+        if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
+            e.velocity = Vector2Clamp(Vector2Add(e.velocity, (Vector2){0.5, 0.}),
+                                      (Vector2){-150, -150},
+                                      (Vector2){150, 150});
+        }
 
         float deltaTime = GetFrameTime() * TIMESCALE;
 
