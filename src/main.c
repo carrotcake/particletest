@@ -13,7 +13,7 @@
 
 #define NUM_BARRIERS 15
 
-#define PARTICLE_INTERVAL 10
+#define PARTICLE_INTERVAL 1
 #define PARTICLE_SIZE (5.f * SCALE)
 
 #define EMITTER_SIZE (20.f * SCALE)
@@ -47,9 +47,9 @@ typedef struct {
 static Rectangle barriers[NUM_BARRIERS];
 static const Color barrierColor = SKYBLUE;
 static char fpsbuf[128], posbuf[128], velbuf[128], flagsbuf[512];
-static bool b_gravity, b_brownian, b_nwtn3rd, b_solitaire;
+static bool b_gravity, b_brownian, b_nwtn3rd, b_solitaire, b_rocket[4] = {0};
 static size_t frames = 0;
-
+typedef enum { UP, DOWN, LEFT, RIGHT } Dir;
 typedef enum { AXIS_X, AXIS_Y } Axis;
 
 inline void CalcVelocityAfterCollision(Box *e, const Axis a) {
@@ -74,15 +74,12 @@ void UpdateBoxPosition(Box *e, const float deltaTime) {
         e->velocity = Vector2Add(e->velocity, Vector2Scale(
                 (Vector2) {(float) GetRandomValue(-10, 10) / 10.f, (float) GetRandomValue(-10, 10) / 10.f}, 1));
     }
-    if(b_gravity) {
-        e->velocity = Vector2Add(e->velocity, Vector2Scale((Vector2) {0, 5.f}, deltaTime));
-    }
 
     const Rectangle cur = (Rectangle){e->pos.x, e->pos.y, size, size};
-    if (e->pos.x == 0 || e->pos.x == SCREEN_WIDTH - size) {
+    if (fabs(e->velocity.x) > .5 && (e->pos.x == 0 || e->pos.x == SCREEN_WIDTH - size)) {
         CalcVelocityAfterCollision(e, AXIS_X);
     }
-    if (e->pos.y == 0 || e->pos.y == SCREEN_HEIGHT - size) {
+    if (fabs(e->velocity.y) > .5 && (e->pos.y == 0 || e->pos.y == SCREEN_HEIGHT - size)) {
         CalcVelocityAfterCollision(e, AXIS_Y);
     }
 
@@ -116,6 +113,9 @@ void UpdateBoxPosition(Box *e, const float deltaTime) {
             }
         }
     }
+    if (b_gravity) {
+        e->velocity = Vector2Add(e->velocity, Vector2Scale((Vector2){0, 5.f}, deltaTime));
+    }
 }
 
 void UpdateParticle(Box *p) {
@@ -137,6 +137,23 @@ void emitParticle(Emitter *e) {
     p->pos = (Vector2) {e->pos.x + e->size / 2, e->pos.y + e->size / 2};
     Vector2 fuzz = (Vector2){(float) GetRandomValue(-64, 64) / 8.,
                              (float) GetRandomValue(-128, 128) / 8.};
+    if (b_nwtn3rd) {
+        if (b_rocket[UP]) {
+            if (fuzz.y < 0)
+                fuzz.y = -1. * fuzz.y;
+        } else if (b_rocket[DOWN]) {
+            if (fuzz.y > 0)
+                fuzz.y = -1 * fuzz.y;
+        }
+        if (b_rocket[LEFT]) {
+            if (fuzz.x < 0)
+                fuzz.x = -1 * fuzz.x;
+        } else if (b_rocket[RIGHT]) {
+            if (fuzz.x > 0)
+                fuzz.x = -1 * fuzz.x;
+        }
+    }
+
     p->velocity = fuzz;
     if (b_nwtn3rd) {
         e->velocity = Vector2Subtract(e->velocity, Vector2Scale(fuzz, PARTICLE_SIZE / EMITTER_SIZE));
@@ -205,25 +222,53 @@ void HandleInput(Emitter *e) {
     default:
         break;
     }
+    if (IsKeyDown(KEY_ZERO)) {
+        e->velocity = Vector2Zero();
+    }
     if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
-        e->velocity = Vector2Clamp(Vector2Add(e->velocity, (Vector2){0., -0.5}),
-                                   (Vector2){-150, -150},
-                                   (Vector2){150, 150});
+        if (b_nwtn3rd) {
+            b_rocket[UP] = true;
+        } else {
+            e->velocity = Vector2Clamp(Vector2Add(e->velocity, (Vector2){0., -0.5}),
+                                       (Vector2){-150, -150},
+                                       (Vector2){150, 150});
+        }
+    } else {
+        b_rocket[UP] = false;
     }
     if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
-        e->velocity = Vector2Clamp(Vector2Add(e->velocity, (Vector2){0., 0.5}),
-                                   (Vector2){-150, -150},
-                                   (Vector2){150, 150});
+        if (b_nwtn3rd) {
+            b_rocket[DOWN] = true;
+        } else {
+            e->velocity = Vector2Clamp(Vector2Add(e->velocity, (Vector2){0., 0.5}),
+                                       (Vector2){-150, -150},
+                                       (Vector2){150, 150});
+        }
+    } else {
+        b_rocket[DOWN] = false;
     }
     if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
-        e->velocity = Vector2Clamp(Vector2Add(e->velocity, (Vector2){-0.5, 0.}),
-                                   (Vector2){-150, -150},
-                                   (Vector2){150, 150});
+        if (b_nwtn3rd) {
+            b_rocket[LEFT] = true;
+        } else {
+            e->velocity = Vector2Clamp(Vector2Add(e->velocity, (Vector2){-0.5, 0.}),
+                                       (Vector2){-150, -150},
+                                       (Vector2){150, 150});
+        }
+    } else {
+        b_rocket[LEFT] = false;
     }
+
     if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
-        e->velocity = Vector2Clamp(Vector2Add(e->velocity, (Vector2){0.5, 0.}),
-                                   (Vector2){-150, -150},
-                                   (Vector2){150, 150});
+        if (b_nwtn3rd) {
+            b_rocket[RIGHT] = true;
+        } else {
+            e->velocity = Vector2Clamp(Vector2Add(e->velocity, (Vector2){0.5, 0.}),
+                                       (Vector2){-150, -150},
+                                       (Vector2){150, 150});
+        }
+    } else {
+        b_rocket[RIGHT] = false;
     }
     {
         static Vector2 hVel = (Vector2){0.0f, 0.0f};
@@ -316,6 +361,10 @@ int main(void) {
         float deltaTime = GetFrameTime() * TIMESCALE;
         //handle keyb/mouse input
         HandleInput(&e);
+        // create new particle if it's time
+        if (++frames % PARTICLE_INTERVAL == 0) {
+            emitParticle(&e);
+        }
         // update emitter position
         UpdateBoxPosition((Box *) &e, deltaTime);
         // update particle positions
@@ -324,10 +373,6 @@ int main(void) {
             if (frames % PARTICLE_INTERVAL == 0) {
                 UpdateParticle(&e.particles[i]);
             }
-        }
-        // create new particle if it's time
-        if (++frames % PARTICLE_INTERVAL == 0) {
-            emitParticle(&e);
         }
 
         DoTextStuff(&e);
