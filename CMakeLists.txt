@@ -17,6 +17,7 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(raylib)
 
+set(CMAKE_C_FLAGS_RELEASE "-Ofast -DNDEBUG")
 
 # Adding our source files
 file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/src/*.c")
