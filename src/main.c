@@ -1,11 +1,16 @@
 #include "raylib.h"
 #include "raymath.h"
+#include <assert.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifndef SCREEN_WIDTH
 #define SCREEN_WIDTH (2560)
+#endif
+#ifndef SCREEN_HEIGHT
 #define SCREEN_HEIGHT (SCREEN_WIDTH * 9 / 16)
+#endif
 
 #define SCALE (SCREEN_WIDTH / 800)
 
@@ -28,7 +33,7 @@
 #define TIMESCALE 10
 #define AVG_KEEP 25
 
-#define NUMTHREADS 4
+#define NUMTHREADS 8
 
 #define min(a, b) ((a) > (b) ? (b) : (a))
 #define max(a, b) ((a) > (b) ? (a) : (b))
@@ -67,9 +72,9 @@ static bool b_gravity, b_brownian, b_nwtn3rd, b_repulsion, b_solitaire, b_rocket
 static size_t frames = 0;
 typedef enum { UP, DOWN, LEFT, RIGHT } Dir;
 typedef enum { AXIS_X, AXIS_Y } Axis;
-static double repulsion_radius = 1.75, repulsion_factor = 1.25, brown_factor = .25;
+static double repulsion_radius = 1.75, repulsion_factor = 2, brown_factor = .25;
 
-inline void CalcVelocityAfterCollision(Box *e, const Axis a) {
+void CalcVelocityAfterCollision(Box *e, const Axis a) {
     double friction = (1 - ((e->size) / (MAX_ESIZE * 2)));
     switch (a) {
     case AXIS_X:
@@ -141,7 +146,7 @@ void UpdateBoxPosition(Box *b, const float deltaTime) {
     }
     //drag
 
-    b->velocity = Vector2Scale(b->velocity, Remap(b->size, 0, MAX_ESIZE, .99999, .999));
+    b->velocity = Vector2Scale(b->velocity, .9999);
 }
 
 void UpdateParticle(Box *p) {
@@ -154,7 +159,7 @@ void UpdateParticle(Box *p) {
     hsv.x += (720. * (MAX_PARTICLES / 1000.)) / (increment);
     // hsv.y -= .1 / increment;
     //hsv.z -= .1 / increment;
-    p->size -= PARTICLE_SIZE / increment;
+    p->size -= (PARTICLE_SIZE / 1.5) / increment;
     p->color = ColorFromHSV(hsv.x, hsv.y, hsv.z);
 }
 
@@ -225,13 +230,12 @@ void emitParticle(Emitter *e) {
 
 static const size_t CELL_SIZE = 64;
 
-#define distance_from_emitter(BOX) \
-    (Vector2Distance(Vector2Add((BOX).pos, (Vector2){(BOX).size / 2., (BOX).size / 2.}), \
-                     Vector2Add(e.pos, (Vector2){e.size / 2., e.size / 2.})))
+#define box_center_pos(BOX) Vector2Add((BOX).pos, (Vector2){(BOX).size / 2., (BOX).size / 2.})
+
+#define distance_from_emitter(BOX) (Vector2Distance(box_center_pos((BOX)), box_center_pos(e)))
 
 #define distance_from_particle(BOX1, BOX2) \
-    (Vector2Distance(Vector2Add((BOX1).pos, (Vector2){(BOX1).size / 2., (BOX1).size / 2.}), \
-                     Vector2Add((BOX2).pos, (Vector2){(BOX2).size / 2., (BOX2).size / 2.})))
+    (Vector2Distance(box_center_pos((BOX1)), box_center_pos((BOX2))))
 
 #define get_cell(BOX) \
     ((struct { int x, y; }){(int) (BOX).pos.x / CELL_SIZE, (int) (BOX).pos.y / CELL_SIZE})
@@ -240,37 +244,52 @@ static const size_t CELL_SIZE = 64;
     (abs(get_cell((BOX1)).x - get_cell((BOX2)).x) < 2 \
      && abs(get_cell((BOX1)).y - get_cell((BOX2)).y) < 2)
 
+void RepulseBox(Box *repulsee, const Box *repulsor, const double dt) {
+    const float radius = max(repulsee->size, repulsor->size) * repulsion_radius;
+    const float dist = distance_from_particle(*repulsee, *repulsor);
+    if (dist < radius) {
+        const float size_ratio = repulsor->size / repulsee->size;
+        const Vector2 direction = Vector2Normalize(
+            Vector2Subtract(box_center_pos(*repulsee), box_center_pos(*repulsor)));
+        const float intensity = radius / (dist * dist);
+        const Vector2 deltaV = Vector2Scale(direction,
+                                            dt * size_ratio * intensity * repulsion_factor);
+        repulsee->velocity = Vector2Add(repulsee->velocity, deltaV);
+    }
+}
+
 void *DoRepulsionForBox(void *arg) {
     const double dt = GetFrameTime();
     size_t offset = (size_t) arg;
+    assert(offset < NUMTHREADS);
     Box *boxes = e.particles;
     for (int i = offset; i < e.count; i += NUMTHREADS) {
-        const float radius = boxes[i].size * repulsion_radius;
         if (boxes[i].size > 0) {
+            const float radius = boxes[i].size * repulsion_radius;
             if (distance_from_emitter(boxes[i]) < e.size * repulsion_radius) {
-                double inv = Clamp(1
-                                       / Vector2DistanceSqr(Vector2Normalize(boxes[i].pos),
-                                                            Vector2Normalize(
-                                                                Vector2Add(e.pos,
-                                                                           (Vector2){e.size / 2,
-                                                                                     e.size / 2}))),
-                                   0,
-                                   repulsion_factor * 4);
-                Vector2 diff = Vector2Subtract(boxes[i].pos, e.pos);
-                Vector2 deltaV = Vector2Scale(diff, dt * inv);
+                const float size_ratio = (e.size / boxes[i].size) * 10.f;
+                const Vector2 direction = Vector2Normalize(
+                    Vector2Subtract(box_center_pos(boxes[i]), box_center_pos(e)));
+                const float intensity = (e.size * repulsion_radius)
+                                        / (distance_from_particle(boxes[i], e)
+                                           * distance_from_particle(boxes[i], e));
+                const Vector2 deltaV = Vector2Scale(direction,
+                                                    dt * repulsion_factor * size_ratio * intensity);
                 boxes[i].velocity = Vector2Add(boxes[i].velocity, deltaV);
             }
             for (int j = 0; j < e.count; j++) {
                 if (boxes[j].size > 0 && j != i && in_same_cell(boxes[i], boxes[j])) {
                     if (distance_from_particle(boxes[i], boxes[j])
                         < max(radius, boxes[j].size * repulsion_radius)) {
-                        double inv = Clamp(1
-                                               / Vector2DistanceSqr(Vector2Normalize(boxes[j].pos),
-                                                                    Vector2Normalize(boxes[i].pos)),
-                                           0,
-                                           repulsion_factor);
-                        Vector2 diff = Vector2Subtract(boxes[i].pos, boxes[j].pos);
-                        Vector2 deltaV = Vector2Scale(diff, dt * inv);
+                        const float size_ratio = (boxes[j].size / boxes[i].size) * 10.f;
+                        const Vector2 direction = Vector2Normalize(
+                            Vector2Subtract(box_center_pos(boxes[i]), box_center_pos(boxes[j])));
+                        const float intensity = max(radius, boxes[j].size * repulsion_radius)
+                                                / (distance_from_particle(boxes[i], boxes[j])
+                                                   * distance_from_particle(boxes[i], boxes[j]));
+                        const Vector2 deltaV = Vector2Scale(direction,
+                                                            dt * repulsion_factor * size_ratio
+                                                                * intensity);
                         boxes[i].velocity = Vector2Add(boxes[i].velocity, deltaV);
                     }
                 }
@@ -280,7 +299,7 @@ void *DoRepulsionForBox(void *arg) {
     return 0;
 }
 static pthread_t tid[NUMTHREADS];
-void DoBoxRepulsion(Box *boxes) {
+void DoBoxRepulsion() {
     for (size_t i = 0; i < NUMTHREADS; i++) {
         pthread_create(&tid[i], NULL, DoRepulsionForBox, (void *) i);
     }
@@ -350,6 +369,15 @@ void HandleInput(Emitter *e) {
         break;
     case KEY_M:
         b_menuopen = !b_menuopen;
+        break;
+    case KEY_F11:
+        {
+            if (IsWindowState(FLAG_FULLSCREEN_MODE)) {
+                ClearWindowState(FLAG_FULLSCREEN_MODE);
+            } else {
+                SetWindowState(FLAG_FULLSCREEN_MODE);
+            }
+        }
     default:
         break;
     }
@@ -557,8 +585,8 @@ void Draw(Emitter *e) {
 int main(void) {
     SetConfigFlags(FLAG_FULLSCREEN_MODE);
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, WINDOW_TITLE);
-    SetTargetFPS(500);
 
+    SetTargetFPS(500);
     b_gravity = true;
     b_brownian = true;
     b_nwtn3rd = true;
@@ -581,7 +609,7 @@ int main(void) {
         UpdateBoxPosition((Box *) &e, deltaTime);
         // update particle positions
         if (b_repulsion && e.count > 1)
-            DoBoxRepulsion(e.particles);
+            DoBoxRepulsion();
         for (size_t i = 0; i < e.count; i++) {
             UpdateBoxPosition(&e.particles[i], deltaTime);
             if (frames % PARTICLE_INTERVAL == 0
