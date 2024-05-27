@@ -16,9 +16,9 @@
 
 #define WINDOW_TITLE "Particles"
 
-#define MAX_PARTICLES 1280
+#define MAX_PARTICLES 4500
 
-#define NUM_BARRIERS 15
+#define NUM_BARRIERS 10
 
 #define PARTICLE_INTERVAL 1
 #define PARTICLE_SIZE (5.f * SCALE)
@@ -145,8 +145,7 @@ void UpdateBoxPosition(Box *b, const float deltaTime) {
         b->velocity = Vector2Scale(b->velocity, speed);
     }
     //drag
-
-    b->velocity = Vector2Scale(b->velocity, .9999);
+    b->velocity = Vector2Scale(b->velocity, .99995);
 }
 
 void UpdateParticle(Box *p) {
@@ -244,17 +243,19 @@ static const size_t CELL_SIZE = 64;
     (abs(get_cell((BOX1)).x - get_cell((BOX2)).x) < 2 \
      && abs(get_cell((BOX1)).y - get_cell((BOX2)).y) < 2)
 
-void RepulseBox(Box *repulsee, const Box *repulsor, const double dt) {
-    const float radius = max(repulsee->size, repulsor->size) * repulsion_radius;
-    const float dist = distance_from_particle(*repulsee, *repulsor);
+void RepulseBox(Box *p, const Box *repulsor, const double dt) {
+    const float radius = max(p->size, repulsor->size) * repulsion_radius;
+    const float dist = distance_from_particle(*p, *repulsor);
     if (dist < radius) {
-        const float size_ratio = repulsor->size / repulsee->size;
+        const float size_ratio = repulsor->size / p->size;
         const Vector2 direction = Vector2Normalize(
-            Vector2Subtract(box_center_pos(*repulsee), box_center_pos(*repulsor)));
-        const float intensity = radius / (dist * dist);
-        const Vector2 deltaV = Vector2Scale(direction,
-                                            dt * size_ratio * intensity * repulsion_factor);
-        repulsee->velocity = Vector2Add(repulsee->velocity, deltaV);
+            Vector2Subtract(box_center_pos(*p), box_center_pos(*repulsor)));
+        const float intensity = Clamp((radius) / ((dist / (radius / 2)) * (dist / (radius / 2))),
+                                      0,
+                                      100);
+        float factor = repulsion_factor;
+        const Vector2 deltaV = Vector2Scale(direction, dt * size_ratio * factor * intensity);
+        p->velocity = Vector2Add(p->velocity, deltaV);
     }
 }
 
@@ -265,33 +266,10 @@ void *DoRepulsionForBox(void *arg) {
     Box *boxes = e.particles;
     for (int i = offset; i < e.count; i += NUMTHREADS) {
         if (boxes[i].size > 0) {
-            const float radius = boxes[i].size * repulsion_radius;
-            if (distance_from_emitter(boxes[i]) < e.size * repulsion_radius) {
-                const float size_ratio = (e.size / boxes[i].size) * 10.f;
-                const Vector2 direction = Vector2Normalize(
-                    Vector2Subtract(box_center_pos(boxes[i]), box_center_pos(e)));
-                const float intensity = (e.size * repulsion_radius)
-                                        / (distance_from_particle(boxes[i], e)
-                                           * distance_from_particle(boxes[i], e));
-                const Vector2 deltaV = Vector2Scale(direction,
-                                                    dt * repulsion_factor * size_ratio * intensity);
-                boxes[i].velocity = Vector2Add(boxes[i].velocity, deltaV);
-            }
+            RepulseBox(&boxes[i], (Box *) &e, dt);
             for (int j = 0; j < e.count; j++) {
                 if (boxes[j].size > 0 && j != i && in_same_cell(boxes[i], boxes[j])) {
-                    if (distance_from_particle(boxes[i], boxes[j])
-                        < max(radius, boxes[j].size * repulsion_radius)) {
-                        const float size_ratio = (boxes[j].size / boxes[i].size) * 10.f;
-                        const Vector2 direction = Vector2Normalize(
-                            Vector2Subtract(box_center_pos(boxes[i]), box_center_pos(boxes[j])));
-                        const float intensity = max(radius, boxes[j].size * repulsion_radius)
-                                                / (distance_from_particle(boxes[i], boxes[j])
-                                                   * distance_from_particle(boxes[i], boxes[j]));
-                        const Vector2 deltaV = Vector2Scale(direction,
-                                                            dt * repulsion_factor * size_ratio
-                                                                * intensity);
-                        boxes[i].velocity = Vector2Add(boxes[i].velocity, deltaV);
-                    }
+                    RepulseBox(&boxes[i], &boxes[j], dt);
                 }
             }
         }
@@ -370,6 +348,11 @@ void HandleInput(Emitter *e) {
     case KEY_M:
         b_menuopen = !b_menuopen;
         break;
+    case KEY_ESCAPE:
+        if (b_menuopen) {
+            b_menuopen = false;
+        }
+        break;
     case KEY_F11:
         {
             if (IsWindowState(FLAG_FULLSCREEN_MODE)) {
@@ -381,7 +364,7 @@ void HandleInput(Emitter *e) {
     default:
         break;
     }
-    if (frames % 25 == 0) {
+    if (frames % 10 == 0) {
         if (IsKeyDown(KEY_COMMA) && e->size > MIN_ESIZE) {
             e->size -= .5;
             ratio = PARTICLE_SIZE / (e->size * (MAX_PARTICLES / (PARTICLE_INTERVAL * 70)));
@@ -390,22 +373,22 @@ void HandleInput(Emitter *e) {
             e->size += .5;
             ratio = PARTICLE_SIZE / (e->size * (MAX_PARTICLES / (PARTICLE_INTERVAL * 70)));
         }
-        if (IsKeyDown(KEY_SEMICOLON) && repulsion_radius > .1) {
+        if (IsKeyDown(KEY_SEMICOLON) && repulsion_radius > .01) {
             repulsion_radius -= .01;
         }
-        if (IsKeyDown(KEY_APOSTROPHE) && repulsion_radius < 4) {
+        if (IsKeyDown(KEY_APOSTROPHE) && repulsion_radius < 10) {
             repulsion_radius += .01;
         }
-        if (IsKeyDown(KEY_LEFT_BRACKET) && repulsion_factor > 0) {
+        if (IsKeyDown(KEY_LEFT_BRACKET) && repulsion_factor > -10.) {
             repulsion_factor -= .01;
         }
-        if (IsKeyDown(KEY_RIGHT_BRACKET) && repulsion_factor < 4) {
+        if (IsKeyDown(KEY_RIGHT_BRACKET) && repulsion_factor < 10.) {
             repulsion_factor += .01;
         }
         if (IsKeyDown(KEY_MINUS) && brown_factor > 0.01) {
             brown_factor -= .01;
         }
-        if (IsKeyDown(KEY_EQUAL) && brown_factor < 1) {
+        if (IsKeyDown(KEY_EQUAL) && brown_factor < 2.) {
             brown_factor += .01;
         }
     }
@@ -585,7 +568,7 @@ void Draw(Emitter *e) {
 int main(void) {
     SetConfigFlags(FLAG_FULLSCREEN_MODE);
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, WINDOW_TITLE);
-
+    SetExitKey(KEY_END);
     SetTargetFPS(500);
     b_gravity = true;
     b_brownian = true;
